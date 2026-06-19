@@ -8,6 +8,9 @@ A multi-agent research assistant built with a pluggable LLM backend, Flask, and 
 
 ## Demo
 
+[▶️ Watch AgentFlow Demo](./assets/AgenticFlow.mp4)
+
+
 Given a multi-part query like *"What were the causes, economic impacts, and long-term consequences of the 2008 financial crisis?"*, AgentFlow:
 
 1. Decomposes it into sub-questions
