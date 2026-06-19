@@ -1,4 +1,3 @@
-
 import os
 import json
 import google.generativeai as genai
@@ -14,11 +13,16 @@ You are a Summarizer Agent in a multi-agent research assistant.
 You will be given the original research query and a list of findings 
 gathered by search agents, each with a fact and a source.
 
+Sometimes you will also be given revision instructions from a Fact-Checker 
+agent and your own previous draft — in that case, your job is to FIX the 
+issues raised while keeping everything that was already correct.
+
 Your job is to:
 1. Synthesize the findings into one coherent, well-organized answer
 2. Preserve attribution — note which source supports which claim
 3. Do not add facts that are not present in the findings
 4. Write in clear, neutral, explanatory prose (not bullet points)
+5. If revision instructions are provided, remove or fix exactly what they flag
 
 Always respond with ONLY valid JSON in this exact format:
 {
@@ -34,12 +38,23 @@ Rules:
 - No explanation, no markdown, just raw JSON
 """
 
-def run_summarizer(original_query: str, all_findings: list) -> dict:
+def run_summarizer(
+    original_query: str,
+    all_findings: list,
+    revision_instructions: str = "",
+    previous_draft: dict = None
+) -> dict:
     """
     Takes the original query + combined findings from all search agents,
     and returns a synthesized draft answer with citations.
+
+    If revision_instructions is non-empty, this call is a REVISION pass —
+    previous_draft is included so the model fixes issues rather than
+    starting from scratch. This is what makes the critique loop work:
+    fact_checker.run_critique_loop() calls this same function again
+    with feedback instead of needing a separate "revise" function.
     """
-    # Flatten findings into readable text for the model
+    # Flatten findings into readable text for the model (same as before)
     findings_text = ""
     for i, finding_block in enumerate(all_findings):
         findings_text += f"\nSub-question: {finding_block.get('question', '')}\n"
@@ -47,7 +62,25 @@ def run_summarizer(original_query: str, all_findings: list) -> dict:
             findings_text += f"- Fact: {f['fact']}\n"
             findings_text += f"  Source: {f['source_title']} ({f['source_url']})\n"
 
-    user_message = f"""
+    # Build the user message differently depending on first-draft vs revision
+    if revision_instructions:
+        user_message = f"""
+Original Query: {original_query}
+
+Findings gathered from research:
+{findings_text}
+
+Your previous draft:
+{previous_draft.get('draft_answer', '') if previous_draft else ''}
+
+A Fact-Checker agent reviewed your draft and found issues.
+Revision instructions: {revision_instructions}
+
+Rewrite the draft to fix these issues. Keep everything else that was 
+already correct and well-supported by the findings.
+"""
+    else:
+        user_message = f"""
 Original Query: {original_query}
 
 Findings gathered from research:
@@ -57,10 +90,10 @@ Synthesize these into one coherent draft answer.
 """
 
     model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash",
-    system_instruction=SYSTEM_PROMPT
-)
-    
+        model_name="gemini-2.5-flash",
+        system_instruction=SYSTEM_PROMPT
+    )
+
     response = model.generate_content(user_message)
     raw_text = response.text.strip()
 
@@ -77,7 +110,6 @@ Synthesize these into one coherent draft answer.
 if __name__ == "__main__":
     original_query = "What are the causes and long-term effects of the 2008 financial crisis?"
 
-    # Mock findings (as if returned by search_agent.py for 2 sub-questions)
     mock_findings = [
         {
             "question": "What were the main causes of the 2008 financial crisis?",
@@ -96,5 +128,17 @@ if __name__ == "__main__":
         }
     ]
 
+    # Test 1: first draft (original behavior, unchanged)
     result = run_summarizer(original_query, mock_findings)
+    print("--- First draft ---")
     print(json.dumps(result, indent=2))
+
+    # Test 2: simulate a revision pass
+    revised = run_summarizer(
+        original_query,
+        mock_findings,
+        revision_instructions="Remove any mention of a meteor strike — it is not supported by the sources.",
+        previous_draft=result
+    )
+    print("\n--- Revised draft ---")
+    print(json.dumps(revised, indent=2))
