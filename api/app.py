@@ -4,7 +4,6 @@ import sys
 import os
 import time
 
-# Allow imports from agents/ folder (one level up)
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from flask import Flask, request, jsonify
@@ -15,9 +14,10 @@ from agents.decomposer import run_decomposer
 from agents.search_agent import run_search_agent
 from agents.summarizer import run_summarizer
 from agents.fact_checker import run_fact_checker
+from utils.rate_limit import gemini_safe_call    # ← ADD this import near the top, with the other imports
 
 app = Flask(__name__)
-CORS(app)  # allows React (different port) to call this API
+CORS(app)
 
 MAX_CRITIQUE_ITERATIONS = 3
 
@@ -29,23 +29,18 @@ def health():
 
 @app.route("/query", methods=["POST"])
 def query():
-    """
-    Main pipeline endpoint. Accepts {"query": "..."} and runs the 
-    full multi-agent pipeline, returning the final answer + a full
-    trace of what every agent did.
-    """
     data = request.get_json()
     user_query = data.get("query", "").strip()
 
     if not user_query:
         return jsonify({"error": "Query cannot be empty"}), 400
 
-    trace = []  # this is what powers your frontend's "agent reasoning" panel
+    trace = []
 
     try:
         # ---- STEP 1: Orchestrator plans the pipeline ----
         t0 = time.time()
-        plan = run_orchestrator(user_query)
+        plan = gemini_safe_call(run_orchestrator, user_query)    # ← REPLACES: plan = run_orchestrator(user_query)
         trace.append({
             "agent": "orchestrator",
             "output": plan,
@@ -54,7 +49,7 @@ def query():
 
         # ---- STEP 2: Decomposer breaks query into sub-questions ----
         t0 = time.time()
-        decomposed = run_decomposer(user_query)
+        decomposed = gemini_safe_call(run_decomposer, user_query)    # ← REPLACES: decomposed = run_decomposer(user_query)
         sub_questions = decomposed.get("sub_questions", [user_query])
         trace.append({
             "agent": "decomposer",
@@ -66,7 +61,7 @@ def query():
         all_findings = []
         for sub_q in sub_questions:
             t0 = time.time()
-            result = run_search_agent(sub_q)
+            result = gemini_safe_call(run_search_agent, sub_q)    # ← REPLACES: result = run_search_agent(sub_q)
             all_findings.append(result)
             trace.append({
                 "agent": "search_agent",
@@ -77,7 +72,7 @@ def query():
 
         # ---- STEP 4: Summarizer creates first draft ----
         t0 = time.time()
-        draft = run_summarizer(user_query, all_findings)
+        draft = gemini_safe_call(run_summarizer, user_query, all_findings)    # ← REPLACES: draft = run_summarizer(user_query, all_findings)
         trace.append({
             "agent": "summarizer",
             "output": draft,
@@ -91,7 +86,7 @@ def query():
 
         for iteration in range(MAX_CRITIQUE_ITERATIONS):
             t0 = time.time()
-            check = run_fact_checker(current_draft, all_findings)
+            check = gemini_safe_call(run_fact_checker, current_draft, all_findings)    # ← REPLACES: check = run_fact_checker(current_draft, all_findings)
             trace.append({
                 "agent": "fact_checker",
                 "iteration": iteration + 1,
@@ -105,9 +100,9 @@ def query():
                 critique_status = "validated"
                 break
 
-            # Not valid -> revise
             t0 = time.time()
-            current_draft = run_summarizer(
+            current_draft = gemini_safe_call(    # ← ALSO wrap this revision call
+                run_summarizer,
                 user_query,
                 all_findings,
                 revision_instructions=check["revision_instructions"],
@@ -135,7 +130,7 @@ def query():
     except Exception as e:
         return jsonify({
             "error": str(e),
-            "trace": trace  # return partial trace even on failure - useful for debugging
+            "trace": trace
         }), 500
 
 

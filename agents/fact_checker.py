@@ -70,7 +70,7 @@ Validate every claim in the draft against these source findings.
 """
 
     model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
+        model_name="gemini-2.5-flash-lite",
         system_instruction=SYSTEM_PROMPT
     )
 
@@ -83,9 +83,28 @@ Validate every claim in the draft against these source findings.
             raw_text = raw_text[4:]
         raw_text = raw_text.strip()
 
-    result = json.loads(raw_text)
-    return result
+    if not raw_text:
+        # Model returned nothing usable — fail safe instead of crashing
+        print("WARNING: Fact Checker got an empty response from Gemini")
+        return {
+            "is_valid": False,
+            "confidence": 0.0,
+            "issues": [{"claim": "N/A", "reason": "Fact checker received an empty model response"}],
+            "revision_instructions": "Retry — the validator did not return a usable response."
+        }
 
+    try:
+        result = json.loads(raw_text)
+    except json.JSONDecodeError:
+        print(f"WARNING: Fact Checker got unparseable JSON: {raw_text[:200]}")
+        return {
+            "is_valid": False,
+            "confidence": 0.0,
+            "issues": [{"claim": "N/A", "reason": "Fact checker response was not valid JSON"}],
+            "revision_instructions": "Retry — the validator's response could not be parsed."
+        }
+
+    return result
 
 def run_critique_loop(draft: dict, source_findings: list, summarizer_fn, max_iterations: int = 3) -> dict:
     """
