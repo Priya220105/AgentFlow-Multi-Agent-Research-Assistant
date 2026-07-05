@@ -17,8 +17,18 @@ from agents.fact_checker import run_fact_checker
 from utils.rate_limit import gemini_safe_call    # ← ADD this import near the top, with the other imports
 
 app = Flask(__name__)
-CORS(app)
 
+CORS(
+    app,
+    resources={
+        r"/*": {
+            "origins": [
+                "https://agent-flow-multi-agent-research-ass.vercel.app"
+            ]
+        }
+    },
+    supports_credentials=True
+)
 MAX_CRITIQUE_ITERATIONS = 3
 
 
