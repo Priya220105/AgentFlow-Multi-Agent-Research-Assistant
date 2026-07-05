@@ -9,8 +9,9 @@ const PIPELINE_STAGES = [
   { key: "fact_checker", label: "Fact Checker", desc: "Validating claims" },
 ];
 
-const API_BASE = "http://127.0.0.1:5000";
-
+const API_BASE =
+  process.env.REACT_APP_API_URL || "http://127.0.0.1:5000";
+  
 export default function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
